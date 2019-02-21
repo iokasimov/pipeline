@@ -1,4 +1,4 @@
-module Control.Pipeline (Pipeline, await, yield, finish, impact) where
+module Control.Pipeline (Pipeline, await, yield, finish, impact, (=*=), pipeline) where
 
 import "base" Control.Monad (Monad ((>>=)))
 import "base" Control.Applicative (Applicative (pure))
@@ -35,3 +35,21 @@ finish = ContT $ \_ -> Pipe $ \_ _ -> pure ()
 -- | Do some effectful computation within pipeline
 impact :: Monad t => t a -> Pipeline i o t a ()
 impact e = ContT $ \next -> Pipe $ \ik ok -> e >>= \x -> pipe (next x) ik ok
+
+-- | Compose two pipelines into one
+(=*=) :: forall i e a o t . Monad t => Pipeline i e t () () -> Pipeline e o t () () -> Pipeline i o t a ()
+p =*= q = ContT $ \k -> Pipe $ \ik ok ->
+	pipe (runContT q end) (pause (\() -> runContT p end) ik) ok where
+
+	end :: b -> Pipe c d () t ()
+	end _ = Pipe $ \ _ _ -> pure ()
+
+-- | Run pipeline and get result
+pipeline :: Monad t => Pipeline i o t r r -> t r
+pipeline p = pipe (runContT p (\r -> Pipe $ \_ _ -> pure r)) i o where
+
+	i :: Producer i t r
+	i = Producer $ \o -> produce i o
+
+	o :: Consumer o t r
+	o = Consumer $ \v i -> consume o v i
